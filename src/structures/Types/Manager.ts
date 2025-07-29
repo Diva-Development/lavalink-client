@@ -190,6 +190,10 @@ export interface LavalinkManagerEvents {
     "playerResumed": (player: Player, track: Track | UnresolvedTrack | null) => void;
 
     "playerPaused": (player: Player, track: Track | UnresolvedTrack | null) => void;
+
+    "playerReconnected": (player: Player, reason: string) => void;
+
+    "playerForceReconnected": (player: Player, reason: string) => void;
 }
 /**
  * The Bot client Options needed for the manager
