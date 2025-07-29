@@ -51,6 +51,8 @@ export enum DebugEvents {
     FailedToConnectToNodes = "FailedToConnectToNodes",
     NoAudioDebug = "NoAudioDebug",
     PlayerAutoReconnect = "PlayerAutoReconnect",
+    PlayerConnectionReset = "PlayerConnectionReset",
+    PlayerForceReconnect = "PlayerForceReconnect",
 }
 
 export enum DestroyReasons {
