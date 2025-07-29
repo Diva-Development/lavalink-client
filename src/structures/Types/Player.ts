@@ -81,6 +81,8 @@ export interface PlayerOptions {
     applyVolumeAsFilter?: boolean;
     /** Custom Data for the player get/set datastorage */
     customData?: anyObject;
+    /** Whether to enable automatic connection reset handling */
+    enableConnectionResetHandling?: boolean;
 }
 
 export type anyObject = { [key: string | number]: string | number | null | anyObject };
