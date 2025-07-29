@@ -231,7 +231,9 @@ declare enum DebugEvents {
     PlayerDeleteInsteadOfDestroy = "PlayerDeleteInsteadOfDestroy",
     FailedToConnectToNodes = "FailedToConnectToNodes",
     NoAudioDebug = "NoAudioDebug",
-    PlayerAutoReconnect = "PlayerAutoReconnect"
+    PlayerAutoReconnect = "PlayerAutoReconnect",
+    PlayerConnectionReset = "PlayerConnectionReset",
+    PlayerForceReconnect = "PlayerForceReconnect"
 }
 declare enum DestroyReasons {
     QueueEmpty = "QueueEmpty",
@@ -848,6 +850,44 @@ declare class Player {
      */
     unsubscribeLyrics(): Promise<void>;
     /**
+     * Handle connection reset and attempt to reconnect the player
+     * This method is useful when Lavalink encounters connection reset errors
+     * @param reason The reason for the connection reset
+     * @returns Promise that resolves when reconnection is complete or fails
+     *
+     * @example
+     * ```ts
+     * // Manual connection reset handling
+     * await player.handleConnectionReset("Connection reset by server");
+     *
+     * // Listen for reconnection events
+     * manager.on("playerReconnected", (player, reason) => {
+     *   console.log(`Player ${player.guildId} reconnected: ${reason}`);
+     * });
+     * ```
+     */
+    handleConnectionReset(reason?: string): Promise<this>;
+    /**
+     * Force reconnect the player to handle various connection issues
+     * This is a more aggressive reconnection method that recreates the player connection
+     * @param reason The reason for the force reconnect
+     * @returns Promise that resolves when reconnection is complete
+     */
+    forceReconnect(reason?: string): Promise<this>;
+    /**
+     * Setup automatic connection reset handling
+     * This will automatically attempt to reconnect when connection reset errors occur
+     * @param enable Whether to enable automatic connection reset handling
+     * @returns The player instance for chaining
+     */
+    setupConnectionResetHandling(enable?: boolean): this;
+    /**
+     * Handle socket closed events and attempt reconnection for connection reset errors
+     * @param player The player that experienced the socket close
+     * @param payload The WebSocket closed event payload
+     */
+    private handleSocketClosed;
+    /**
      * Move the player on a different Audio-Node
      * @param newNode New Node / New Node Id
      * @param checkSources If it should check if the sources are supported by the new node @default true
@@ -1099,6 +1139,8 @@ interface PlayerOptions {
     applyVolumeAsFilter?: boolean;
     /** Custom Data for the player get/set datastorage */
     customData?: anyObject;
+    /** Whether to enable automatic connection reset handling */
+    enableConnectionResetHandling?: boolean;
 }
 type anyObject = {
     [key: string | number]: string | number | null | anyObject;
@@ -2704,6 +2746,8 @@ interface LavalinkManagerEvents {
     "LyricsNotFound": (player: Player, track: Track | UnresolvedTrack | null, payload: LyricsNotFoundEvent) => void;
     "playerResumed": (player: Player, track: Track | UnresolvedTrack | null) => void;
     "playerPaused": (player: Player, track: Track | UnresolvedTrack | null) => void;
+    "playerReconnected": (player: Player, reason: string) => void;
+    "playerForceReconnected": (player: Player, reason: string) => void;
 }
 /**
  * The Bot client Options needed for the manager

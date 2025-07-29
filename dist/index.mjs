@@ -43,6 +43,8 @@ var DebugEvents = /* @__PURE__ */ ((DebugEvents2) => {
   DebugEvents2["FailedToConnectToNodes"] = "FailedToConnectToNodes";
   DebugEvents2["NoAudioDebug"] = "NoAudioDebug";
   DebugEvents2["PlayerAutoReconnect"] = "PlayerAutoReconnect";
+  DebugEvents2["PlayerConnectionReset"] = "PlayerConnectionReset";
+  DebugEvents2["PlayerForceReconnect"] = "PlayerForceReconnect";
   return DebugEvents2;
 })(DebugEvents || {});
 var DestroyReasons = /* @__PURE__ */ ((DestroyReasons2) => {
@@ -3689,6 +3691,9 @@ var Player = class {
     ), 1e3), 0));
     if (!dontEmitPlayerCreateEvent) this.LavalinkManager.emit("playerCreate", this);
     this.queue = new Queue(this.guildId, {}, new QueueSaver(this.LavalinkManager.options.queueOptions), this.LavalinkManager.options.queueOptions);
+    if (this.options.enableConnectionResetHandling !== false) {
+      this.setupConnectionResetHandling(true);
+    }
   }
   /**
    * Set custom data.
@@ -4198,6 +4203,214 @@ var Player = class {
   unsubscribeLyrics() {
     return this.node.lyrics.unsubscribe(this.guildId);
   }
+  /**
+   * Handle connection reset and attempt to reconnect the player
+   * This method is useful when Lavalink encounters connection reset errors
+   * @param reason The reason for the connection reset
+   * @returns Promise that resolves when reconnection is complete or fails
+   * 
+   * @example
+   * ```ts
+   * // Manual connection reset handling
+   * await player.handleConnectionReset("Connection reset by server");
+   * 
+   * // Listen for reconnection events
+   * manager.on("playerReconnected", (player, reason) => {
+   *   console.log(`Player ${player.guildId} reconnected: ${reason}`);
+   * });
+   * ```
+   */
+  async handleConnectionReset(reason = "Connection reset") {
+    if (this.get("internal_connectionResetInProgress")) {
+      if (this.LavalinkManager.options?.advancedOptions?.enableDebugEvents) {
+        this.LavalinkManager.emit("debug", "PlayerConnectionReset" /* PlayerConnectionReset */, {
+          state: "warn",
+          message: `Connection reset already in progress for player ${this.guildId}`,
+          functionLayer: "Player > handleConnectionReset()"
+        });
+      }
+      return this;
+    }
+    this.set("internal_connectionResetInProgress", true);
+    try {
+      if (this.LavalinkManager.options?.advancedOptions?.enableDebugEvents) {
+        this.LavalinkManager.emit("debug", "PlayerConnectionReset" /* PlayerConnectionReset */, {
+          state: "log",
+          message: `Handling connection reset for player ${this.guildId}: ${reason}`,
+          functionLayer: "Player > handleConnectionReset()"
+        });
+      }
+      const currentTrack = this.queue.current;
+      const currentPosition = this.position;
+      const wasPaused = this.paused;
+      const currentVolume = this.volume;
+      await this.disconnect(true);
+      await new Promise((resolve) => setTimeout(resolve, 1e3));
+      await this.connect();
+      await new Promise((resolve) => setTimeout(resolve, 2e3));
+      if (currentTrack) {
+        await this.play({
+          clientTrack: currentTrack,
+          position: currentPosition,
+          paused: wasPaused,
+          volume: currentVolume
+        });
+      } else if (this.queue.tracks.length > 0) {
+        await this.play({ paused: wasPaused, volume: currentVolume });
+      }
+      if (this.LavalinkManager.options?.advancedOptions?.enableDebugEvents) {
+        this.LavalinkManager.emit("debug", "PlayerConnectionReset" /* PlayerConnectionReset */, {
+          state: "log",
+          message: `Successfully reconnected player ${this.guildId} after connection reset`,
+          functionLayer: "Player > handleConnectionReset()"
+        });
+      }
+      this.LavalinkManager.emit("playerReconnected", this, reason);
+    } catch (error) {
+      if (this.LavalinkManager.options?.advancedOptions?.enableDebugEvents) {
+        this.LavalinkManager.emit("debug", "PlayerConnectionReset" /* PlayerConnectionReset */, {
+          state: "error",
+          error,
+          message: `Failed to reconnect player ${this.guildId} after connection reset`,
+          functionLayer: "Player > handleConnectionReset()"
+        });
+      }
+      await this.destroy(`Connection reset reconnection failed: ${error}`, true);
+    } finally {
+      this.set("internal_connectionResetInProgress", void 0);
+    }
+    return this;
+  }
+  /**
+   * Force reconnect the player to handle various connection issues
+   * This is a more aggressive reconnection method that recreates the player connection
+   * @param reason The reason for the force reconnect
+   * @returns Promise that resolves when reconnection is complete
+   */
+  async forceReconnect(reason = "Force reconnect") {
+    if (this.get("internal_forceReconnectInProgress")) {
+      if (this.LavalinkManager.options?.advancedOptions?.enableDebugEvents) {
+        this.LavalinkManager.emit("debug", "PlayerForceReconnect" /* PlayerForceReconnect */, {
+          state: "warn",
+          message: `Force reconnect already in progress for player ${this.guildId}`,
+          functionLayer: "Player > forceReconnect()"
+        });
+      }
+      return this;
+    }
+    this.set("internal_forceReconnectInProgress", true);
+    try {
+      if (this.LavalinkManager.options?.advancedOptions?.enableDebugEvents) {
+        this.LavalinkManager.emit("debug", "PlayerForceReconnect" /* PlayerForceReconnect */, {
+          state: "log",
+          message: `Force reconnecting player ${this.guildId}: ${reason}`,
+          functionLayer: "Player > forceReconnect()"
+        });
+      }
+      const currentTrack = this.queue.current;
+      const currentPosition = this.position;
+      const wasPaused = this.paused;
+      const currentVolume = this.volume;
+      const queueTracks = [...this.queue.tracks];
+      await this.node.destroyPlayer(this.guildId);
+      await new Promise((resolve) => setTimeout(resolve, 1e3));
+      await this.connect();
+      await new Promise((resolve) => setTimeout(resolve, 2e3));
+      if (queueTracks.length > 0 && this.queue.tracks.length === 0) {
+        for (const track of queueTracks) {
+          this.queue.add(track);
+        }
+      }
+      if (currentTrack) {
+        await this.play({
+          clientTrack: currentTrack,
+          position: currentPosition,
+          paused: wasPaused,
+          volume: currentVolume
+        });
+      } else if (this.queue.tracks.length > 0) {
+        await this.play({ paused: wasPaused, volume: currentVolume });
+      }
+      if (this.LavalinkManager.options?.advancedOptions?.enableDebugEvents) {
+        this.LavalinkManager.emit("debug", "PlayerForceReconnect" /* PlayerForceReconnect */, {
+          state: "log",
+          message: `Successfully force reconnected player ${this.guildId}`,
+          functionLayer: "Player > forceReconnect()"
+        });
+      }
+      this.LavalinkManager.emit("playerForceReconnected", this, reason);
+    } catch (error) {
+      if (this.LavalinkManager.options?.advancedOptions?.enableDebugEvents) {
+        this.LavalinkManager.emit("debug", "PlayerForceReconnect" /* PlayerForceReconnect */, {
+          state: "error",
+          error,
+          message: `Failed to force reconnect player ${this.guildId}`,
+          functionLayer: "Player > forceReconnect()"
+        });
+      }
+      await this.destroy(`Force reconnection failed: ${error}`, true);
+    } finally {
+      this.set("internal_forceReconnectInProgress", void 0);
+    }
+    return this;
+  }
+  /**
+   * Setup automatic connection reset handling
+   * This will automatically attempt to reconnect when connection reset errors occur
+   * @param enable Whether to enable automatic connection reset handling
+   * @returns The player instance for chaining
+   */
+  setupConnectionResetHandling(enable = true) {
+    if (enable) {
+      this.LavalinkManager.off("playerSocketClosed", this.handleSocketClosed);
+      this.LavalinkManager.on("playerSocketClosed", this.handleSocketClosed);
+      if (this.LavalinkManager.options?.advancedOptions?.enableDebugEvents) {
+        this.LavalinkManager.emit("debug", "PlayerConnectionReset" /* PlayerConnectionReset */, {
+          state: "log",
+          message: `Automatic connection reset handling enabled for player ${this.guildId}`,
+          functionLayer: "Player > setupConnectionResetHandling()"
+        });
+      }
+    } else {
+      this.LavalinkManager.off("playerSocketClosed", this.handleSocketClosed);
+      if (this.LavalinkManager.options?.advancedOptions?.enableDebugEvents) {
+        this.LavalinkManager.emit("debug", "PlayerConnectionReset" /* PlayerConnectionReset */, {
+          state: "log",
+          message: `Automatic connection reset handling disabled for player ${this.guildId}`,
+          functionLayer: "Player > setupConnectionResetHandling()"
+        });
+      }
+    }
+    return this;
+  }
+  /**
+   * Handle socket closed events and attempt reconnection for connection reset errors
+   * @param player The player that experienced the socket close
+   * @param payload The WebSocket closed event payload
+   */
+  handleSocketClosed = (player, payload) => {
+    if (player.guildId !== this.guildId) return;
+    const isConnectionReset = payload.code === 1006 || payload.reason?.includes("Connection reset") || payload.reason?.includes("java.net.SocketException");
+    if (isConnectionReset) {
+      if (this.LavalinkManager.options?.advancedOptions?.enableDebugEvents) {
+        this.LavalinkManager.emit("debug", "PlayerConnectionReset" /* PlayerConnectionReset */, {
+          state: "warn",
+          message: `Detected connection reset for player ${this.guildId}, attempting automatic reconnection`,
+          functionLayer: "Player > handleSocketClosed()"
+        });
+      }
+      this.handleConnectionReset(`Socket closed with code ${payload.code}: ${payload.reason}`).catch((error) => {
+        if (this.LavalinkManager.options?.advancedOptions?.enableDebugEvents) {
+          this.LavalinkManager.emit("debug", "PlayerConnectionReset" /* PlayerConnectionReset */, {
+            state: "error",
+            error,
+            message: `Automatic connection reset handling failed for player ${this.guildId}`,
+            functionLayer: "Player > handleSocketClosed()"
+          });
+        }
+      });
+    }
+  };
   /**
    * Move the player on a different Audio-Node
    * @param newNode New Node / New Node Id
