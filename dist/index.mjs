@@ -4088,7 +4088,6 @@ var Player = class {
    */
   async switchVoiceChannel(voiceChannelId, selfDeaf, selfMute) {
     if (!voiceChannelId) throw new RangeError("Voice Channel ID is required");
-    if (this.options.voiceChannelId === voiceChannelId) throw new RangeError("New Channel can't be equal to the old Channel.");
     const oldVoiceChannelId = this.options.voiceChannelId;
     await this.LavalinkManager.options.sendToShard(this.guildId, {
       op: 4,
